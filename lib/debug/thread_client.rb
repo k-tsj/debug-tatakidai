@@ -1,3 +1,17 @@
+require 'power_assert'
+
+module PowerAssert
+  INTERNAL_LIB_DIRS[DEBUGGER__] = File.dirname(caller_locations(1, 1).first.path)
+
+  class << self
+    def trace(frame)
+      ctx = TraceContext.new(frame.binding)
+      ctx.enable
+      ctx
+    end
+  end
+end
+
 module DEBUGGER__
   class ThreadClient
     def self.current
@@ -80,6 +94,10 @@ module DEBUGGER__
 
       if event != :pause
         show_src
+        if @pa
+          @pa.disable
+          @pa = nil
+        end
         print_frames 3
         event! :suspend, :breakpoint
       end
@@ -149,7 +167,12 @@ module DEBUGGER__
             if i == line
               "=> #{'%4d' % (i+1)}| #{e}"
             else
-              "   #{'%4d' % (i+1)}| #{e}"
+              parser = @pa&.instance_variable_get(:@parser)
+              if parser && parser.path == path && parser.lineno == (i+1)
+                "   #{'%4d' % (i+1)}| #{@pa.message.gsub(/(?!\A)^/, '         ')}"
+              else
+                "   #{'%4d' % (i+1)}| #{e}"
+              end
             end
           }
           min = [0, line - max_lines/2].max
@@ -304,6 +327,7 @@ module DEBUGGER__
             step_tp{true}
           when :next
             size = @target_frames.size
+            @pa = ::PowerAssert.trace(@target_frames.last)
             step_tp{
               target_frames_count() <= size
             }
